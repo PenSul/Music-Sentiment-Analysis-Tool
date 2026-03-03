@@ -1,71 +1,87 @@
-# Genius API authentication function - oh boy, another API to fight with
+# genius_auth.R
+# ---------------------------------------------------------------------------
+# Genius API OAuth 2.0 authentication and authenticated GET helper.
+# ---------------------------------------------------------------------------
+
+library(httr)
+library(jsonlite)
 
 
-#' Operator for providing default values for NULL
+#' Provide a default value when the left-hand side is NULL.
 #'
-#' @param x Value to check
-#' @param y Default value to use if x is NULL
-#' @return x if not NULL, otherwise y
-`%||%` <- function(x, y) if (is.null(x)) y else x
-
-#' Authenticate with Genius API using OAuth 2.0
+#' A standard null-coalescing operator for use with optional configuration
+#' values.
 #'
-#' @param client_id Genius API Client ID
-#' @param client_secret Genius API Client Secret  
-#' @param redirect_uri Default: http://localhost:1410/
-#' @return OAuth token object
-#' @import httr
-genius_oauth <- function(client_id, client_secret, redirect_uri = "http://localhost:1410/") {
-    library(httr)
-    
-    # Genius OAuth endpoints
-    genius <- oauth_endpoint(
-        authorize = "https://api.genius.com/oauth/authorize",
-        access = "https://api.genius.com/oauth/token"
-    )
-    
-    # Create an OAuth application object
-    app <- oauth_app("genius", client_id, client_secret, redirect_uri = redirect_uri)
-    
-    # Get OAuth token
-    token <- oauth2.0_token(
-        endpoint = genius,
-        app = app,
-        scope = "me",
-        cache = TRUE
-    )
-    return(token)
+#' @param x Value to check.
+#' @param y Default value to return when \code{x} is NULL.
+#' @return \code{x} if it is not NULL; otherwise \code{y}.
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
 }
 
-#' Make an authenticated request to Genius API
+
+#' Authenticate with the Genius API via OAuth 2.0.
 #'
-#' @param endpoint API endpoint path (e.g., "songs/123")
-#' @param token OAuth token from genius_oauth()
-#' @param ... Additional parameters to pass to httr::GET
-#' @return Parsed JSON response
-#' @import httr jsonlite
-genius_get <- function(endpoint, token, ...) {
-    library(httr)
-    library(jsonlite)
-    
-    base_url <- "https://api.genius.com/"
-    
-    # Make request with the proper authentication
-    response <- GET(
-        url = paste0(base_url, endpoint),
-        config = config(token = token),
-        ...
+#' Opens a browser-based consent flow and returns a reusable token object.
+#'
+#' @param clientId     Character. Genius API client ID.
+#' @param clientSecret Character. Genius API client secret.
+#' @param redirectUri  Character. Redirect URI registered with the Genius
+#'   application.  Defaults to \code{"http://localhost:1410/"}.
+#' @return An httr OAuth 2.0 token object.
+GeniusOAuth <- function(clientId,
+                        clientSecret,
+                        redirectUri = "http://localhost:1410/") {
+  endpoint <- oauth_endpoint(
+    authorize = "https://api.genius.com/oauth/authorize",
+    access    = "https://api.genius.com/oauth/token"
+  )
+
+  app <- oauth_app(
+    "genius",
+    clientId,
+    clientSecret,
+    redirect_uri = redirectUri
+  )
+
+  token <- oauth2.0_token(
+    endpoint = endpoint,
+    app      = app,
+    scope    = "me",
+    cache    = TRUE
+  )
+
+  return(token)
+}
+
+
+#' Make an authenticated GET request to the Genius API.
+#'
+#' Appends the given endpoint path to the Genius base URL, attaches the
+#' OAuth token, and returns the parsed JSON response body.
+#'
+#' @param endpoint Character. Relative API path (e.g. \code{"songs/123"}).
+#' @param token    An httr OAuth 2.0 token returned by \code{GeniusOAuth()}.
+#' @param ...      Additional arguments forwarded to \code{httr::GET()}.
+#' @return A list representing the \code{response} node of the parsed JSON.
+GeniusGet <- function(endpoint, token, ...) {
+  baseUrl  <- "https://api.genius.com/"
+  response <- GET(
+    url    = paste0(baseUrl, endpoint),
+    config = config(token = token),
+    ...
+  )
+
+  if (http_error(response)) {
+    stop(
+      sprintf(
+        "Genius API request failed [%d]: %s",
+        status_code(response),
+        content(response, "text", encoding = "UTF-8")
+      )
     )
-    
-    # Check errors
-    if (http_error(response)) {
-        stop(
-            "Genius API request failed [", status_code(response), "]\n", 
-            content(response, "text", encoding = "UTF-8"), " - Fucking Genius API!"
-        )
-    }
-    
-    # Parse and return response
-    parsed <- fromJSON(content(response, "text", encoding = "UTF-8"))
-    return(parsed$response)
+  }
+
+  parsed <- fromJSON(content(response, "text", encoding = "UTF-8"))
+  return(parsed$response)
 }
